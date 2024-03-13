@@ -1,2 +1,1219 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+//----------------------------------------------------------------------------- 
+// Universidad del valle de Guatemala
+// IE2023 Programación de Microcontroladores
+// Autor: Victor Vanegas
+// Proyecto: Proyecto_1.asm
+// Descripción: 
+// Hardware: ATMega328P 
+// Created: 5/02/2024 22:34:59
+//-----------------------------------------------------------------------------
+// Encabezado
+//-----------------------------------------------------------------------------
+.include "M328PDEF.inc"
+.cseg
+.org 0x00
+	JMP MAIN		// Vector RES
+.org 0x0008			// Vertor de ISR: CAMBIO
+	JMP CAMBIO
+.org 0x0020			// Vertor de ISR: TIEMPO
+	JMP RELOJ
+
+MAIN:
+//-----------------------------------------------------------------------------
+// Configuracion de la pila
+//-----------------------------------------------------------------------------
+	LDI R16, LOW(RAMEND) 
+	OUT SPL, R16
+	LDI R17, HIGH(RAMEND) 
+	OUT SPH, R17
+
+//-----------------------------------------------------------------------------
+// Tabla  de valores
+//-----------------------------------------------------------------------------
+TABLA7SEG:  .DB 0b0100_0000, 0b0111_1001, 0b0010_0100, 0b0011_0000, 0b0001_1001, 0b0001_0010, 0b0000_0010, 0b0111_1000, 0b0000_0000, 0b0001_1000
+
+//-----------------------------------------------------------------------------
+// CONFIGURACIÓN
+//-----------------------------------------------------------------------------
+SETUP:
+	LDI R16, (1 << CLKPCE) // CLKPCE = 7, corremos 7 veces el 1 en el registro R16
+	STS CLKPR, R16
+	
+	LDI R16, 0b0000_0110
+	STS CLKPR, R16		   // Definiendo un prescaler de 500,000 Hz
+
+	// Entradas
+	LDI R16, 0b0000_1111
+	OUT PORTC, R16				// Pull up en los botones
+	LDI R16, 0b0111_1111
+	OUT DDRC, R16
+	// Salidas
+	LDI R16, 0b0001_1111
+	OUT DDRB, R16		
+	LDI R16, 0b1111_1111
+	OUT DDRD, R16
+	
+	LDI R16, 60
+	MOV R2, R16
+	// Registros del tiempo
+	// R3			// Segundos
+	LDI R19, 0x09			// Minutos
+	LDI R20, 0x05			// Decena de minutos
+	LDI R21, 0x03			// Horas
+	LDI R22, 0x02			// Decena de horas
+
+	// Registros de fecha
+	LDI R23, 0x01			// Día
+	LDI R24, 0x03			// Decena de día
+	LDI R25, 0x03			// Mes
+	LDI R26, 0x00			// Decena de mes
+
+	LDI R17, 0x00			// Minutos de alarma
+	LDI R18, 0x00			// Decenas de minutos de alarma
+	LDI R28, 0x00			// Horas de alarma
+	LDI R29, 0x00			// Decena de horas de alarma
+
+	// Resgitro de estado
+	LDI R27, 0x00
+	
+			
+
+	OUT PORTD, R17				// Para poder usar los puerto RX y TX
+	STS UCSR0B, R17
+
+	CALL Init_T0
+
+	LDI R16, 0b0000_0010
+	STS PCICR, R16				// Asignamos que la interrupcion viene del puerto C
+
+	LDI R16, 0b0000_1100		// Especificar que parte del puerto C
+	STS PCMSK1, R16
+	
+	LDI R16, (1 << TOIE0)
+	STS TIMSK0, R16				
+	SEI							// Habilita las interrupciones globales
+
+//-----------------------------------------------------------------------------
+// LOOP ESTADOS
+//-----------------------------------------------------------------------------
+ESTADO:
+	CP R17, R19
+	BREQ COMPARADOR1
+	LDI R16, 0b0001_0000
+	OUT PORTB, R16
+
+ESTADO1:
+	CPI R27, 0
+	BREQ A
+	CPI R27, 1
+	BREQ B
+	CPI R27, 2
+	BREQ C
+	CPI R27, 3
+	BREQ D
+	CPI R27, 4
+	BREQ E
+	CPI R27, 5
+	BREQ F
+	CPI R27, 6
+	BREQ G
+	CPI R27, 7
+	BREQ H
+	CPI R27, 8
+	BREQ I
+	RJMP ESTADO
+
+A:
+	RJMP HORA
+B:
+	RJMP FECHA
+C:
+	RJMP CAM_HORAS
+D:
+	RJMP CAM_MINUTOS	
+E: 
+	RJMP CAM_MES
+F: 
+	RJMP CAM_DIAS
+G:
+	RJMP ALARMA	
+H: 
+	RJMP CAM_HORAS_ALARMA
+I: 
+	RJMP CAM_MINUTOS_ALARMA
+
+COMPARADOR1:
+	CP R28, R20	
+	BREQ COMPARADOR2
+	RJMP ESTADO1
+COMPARADOR2:
+	CP R29, R21
+	BREQ COMPARADOR3
+	RJMP ESTADO1
+COMPARADOR3:
+	CP R31, R22
+	BRNE ESTADO1
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+//-----------------------------------------------------------------------------
+// ESTADO ACTUAL
+//-----------------------------------------------------------------------------	
+
+//-----------------------------------------------------------------------------
+// HORA
+//-----------------------------------------------------------------------------	
+HORA:
+	LDI R16, 0b0000_1111
+	OUT PORTC, R16	
+	LDI ZH, HIGH(TABLA7SEG << 1)        // Asigna el valor bit mas significativo a la tabla
+	LDI ZL, LOW(TABLA7SEG << 1)			// Asigna el valor bit menos significativo a la tabla
+	ADD ZL, R19							// Hace la suma de Z mas R19
+	LPM R16, Z							// El resultado de la suma, saca el registro de la tabla
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R20					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R21				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R22							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// FECHA
+//-----------------------------------------------------------------------------	
+FECHA:
+	LDI R16, 0b0001_1111
+	OUT PORTC, R16	
+	LDI ZH, HIGH(TABLA7SEG << 1)    
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R23						
+	LPM R16, Z							
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R24					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R25				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R26							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// CAMBIO HORAS
+//-----------------------------------------------------------------------------	
+CAM_HORAS:
+	LDI R16, 0b0010_1111
+	OUT PORTC, R16	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R21				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R22							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_HORAS
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_HORAS
+	
+	RJMP ESTADO
+
+INC_HORAS:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_HORAS:
+			DEC R16
+			BRNE LOOP_INC_HORAS
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_HORAS
+			INC R21
+			RJMP CAMBIO_HORAS
+
+DEC_HORAS:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_HORAS:
+			DEC R16
+			BRNE LOOP_DEC_HORAS
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_HORAS
+		DEC R21
+		RJMP CAMBIO_HORAS
+
+CAMBIO_HORAS:
+	CPI R21, 0b1111_1111
+	BREQ DECRE_HORAS
+	CPI R22, 2			// Compara las decenas de horas es igual a 2, ya que la hora solo llega a 4
+	BRNE HOR_ANT_20			// Va a Horas antes de las 20 si es falso
+	
+	CPI R21, 4		
+	BRNE SKIP_HORAS
+	CLR R21
+	CLR R22
+	RJMP ESTADO
+
+HOR_ANT_20:
+	CPI R21, 10	
+	BRNE SKIP_HORAS
+	CLR R21
+	INC R22
+	RJMP ESTADO
+
+DECRE_HORAS:
+	CPI R22, 0
+	BREQ RESET_HORAS
+	LDI R21, 9
+	DEC R22
+	RJMP ESTADO
+
+RESET_HORAS:
+	LDI R21, 3
+	LDI R22, 2
+	RJMP ESTADO
+
+SKIP_HORAS:
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// CAMBIO MINUTOS
+//-----------------------------------------------------------------------------	
+CAM_MINUTOS:
+	LDI R16, 0b0010_1111
+	OUT PORTC, R16	
+	LDI ZH, HIGH(TABLA7SEG << 1)        // Asigna el valor bit mas significativo a la tabla
+	LDI ZL, LOW(TABLA7SEG << 1)			// Asigna el valor bit menos significativo a la tabla
+	ADD ZL, R19							// Hace la suma de Z mas R19
+	LPM R16, Z							// El resultado de la suma, saca el registro de la tabla
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R20					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_MINUTOS
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_MINUTOS
+	
+	RJMP ESTADO
+
+INC_MINUTOS:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_MINUTOS:
+			DEC R16
+			BRNE LOOP_INC_MINUTOS
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_MINUTOS
+			INC R19
+			RJMP CAMBIO_MINUTOS
+
+DEC_MINUTOS:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_MINUTOS:
+			DEC R16
+			BRNE LOOP_DEC_MINUTOS
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_MINUTOS
+		DEC R19
+		RJMP CAMBIO_MINUTOS
+
+CAMBIO_MINUTOS:
+	CPI R19, 0b1111_1111
+	BREQ DECRE_MINUTOS
+
+	CPI R19, 10
+	BRNE SKIP_MINUTOS
+	CLR R19
+	INC R20
+
+	CPI R20, 6
+	BRNE SKIP_MINUTOS
+	CLR R20
+
+	RJMP ESTADO
+
+DECRE_MINUTOS:
+	CPI R20, 0
+	BREQ RESET_MINUTOS
+	LDI R19, 9
+	DEC R20
+
+	RJMP ESTADO
+
+RESET_MINUTOS:
+	LDI R19, 9
+	LDI R20, 5
+
+	RJMP ESTADO
+
+SKIP_MINUTOS:
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// CAMBIO MES
+//-----------------------------------------------------------------------------	
+CAM_MES:
+
+	LDI R16, 0b0100_1111
+	OUT PORTC, R16	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R25				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R26							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_MES
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_MES
+	
+	RJMP ESTADO
+
+INC_MES:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_MES:
+			DEC R16
+			BRNE LOOP_INC_MES
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_MES
+			INC R25
+			RJMP CAMBIO_MES
+
+DEC_MES:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_MES:
+			DEC R16
+			BRNE LOOP_DEC_MES
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_MES
+		DEC R25
+		RJMP CAMBIO_MES
+
+CAMBIO_MES:
+	LDI R23, 1
+	LDI R24, 0
+
+	CPI R25, 0
+	BREQ DECRE_MES_ANT_10
+	CPI R25, 0b1111_1111
+	BREQ DECRE_MES
+	CPI R26, 1
+	BRNE MES_ANT_10
+	CPI R25, 3
+	BRNE SKIP_MES
+	LDI R25, 1
+	CLR R26
+
+	RJMP ESTADO
+
+DECRE_MES_ANT_10:
+	CPI R26, 0
+	BREQ RESET_MES
+
+	RJMP ESTADO
+
+DECRE_MES:
+
+	LDI R25, 9
+	DEC R26
+
+	RJMP ESTADO
+
+RESET_MES:
+	LDI R25, 2
+	LDI R26, 1
+
+	RJMP ESTADO
+
+MES_ANT_10:
+	CPI R25, 10
+	BRNE SKIP_MES
+	CLR R25
+	INC R26
+
+	RJMP ESTADO
+
+SKIP_MES:
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// CAMBIO DIAS
+//-----------------------------------------------------------------------------	
+CAM_DIAS:
+
+	LDI R16, 0b0100_1111
+	OUT PORTC, R16
+	LDI ZH, HIGH(TABLA7SEG << 1)    
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R23						
+	LPM R16, Z							
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R24					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_DIAS
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_DIAS
+	
+	RJMP ESTADO
+
+INC_DIAS:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_DIAS:
+			DEC R16
+			BRNE LOOP_INC_DIAS
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_DIAS
+			INC R23
+			RJMP CAMBIO_DIAS
+
+DEC_DIAS:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_DIAS:
+			DEC R16
+			BRNE LOOP_DEC_DIAS
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_DIAS
+		DEC R23
+		RJMP CAMBIO_DIAS
+
+CAMBIO_DIAS:
+	CPI R26, 0
+	BREQ DIAS_MES_ANT_10
+	
+	CPI R25, 0
+	BREQ DIRE_MES31
+	CPI R25, 1
+	BREQ DIRE_MES30
+	CPI R25, 2
+	BREQ DIRE_MES31
+
+DIAS_MES_ANT_10:
+	CPI R25, 1
+	BREQ DIRE_MES31
+	CPI R25, 2
+	BREQ DIRE_MES29
+	CPI R25, 3
+	BREQ DIRE_MES31
+	CPI R25, 4
+	BREQ DIRE_MES30
+	CPI R25, 5
+	BREQ DIRE_MES31
+	CPI R25, 6
+	BREQ DIRE_MES30
+	CPI R25, 7
+	BREQ DIRE_MES31
+	CPI R25, 8
+	BREQ DIRE_MES31
+	CPI R25, 9
+	BREQ DIRE_MES30
+
+DIRE_MES29:
+	RJMP M29
+DIRE_MES30:
+	RJMP M30
+DIRE_MES31:
+	RJMP M31
+
+//MES DE 29 DIAS
+M29:	
+	CPI R23, 0
+	BREQ DEC_DIAS29
+	CPI R23, 0b1111_1111
+	BREQ DECRE_DIAS29
+	CPI R23, 10
+	BRNE SKIP_DIAS29
+	CLR R23
+	INC R24
+	CPI R24, 3
+	BRNE SKIP_DIAS29
+	CLR R24
+	LDI R23, 1
+	
+	RJMP ESTADO
+
+DEC_DIAS29:
+	CPI R24, 0
+	BREQ RESET_DIAS29
+
+	RJMP ESTADO
+
+RESET_DIAS29:
+	LDI R23, 9
+	LDI R24, 2
+
+	RJMP ESTADO
+
+DECRE_DIAS29:
+	LDI R23, 9
+	DEC R24
+
+	RJMP ESTADO
+
+SKIP_DIAS29:
+	RJMP ESTADO 
+
+//MES DE 30 DIAS
+M30:
+	CPI R23, 0
+	BREQ DEC_DIAS30
+	CPI R23, 0b1111_1111
+	BREQ DECRE_DIAS30
+	CPI R23, 1
+	BREQ RESET_DIAS301
+
+	CPI R23, 10
+	BRNE SKIP_DIAS30
+	CLR R23
+	INC R24
+	
+	RJMP ESTADO
+
+RESET_DIAS301:
+	CPI R24, 3
+	BRNE SKIP_DIAS30
+	CLR R24
+
+	RJMP ESTADO
+
+DEC_DIAS30:
+	CPI R24, 0
+	BREQ RESET_DIAS30
+
+	RJMP ESTADO
+
+RESET_DIAS30:
+	LDI R24, 3
+
+	RJMP ESTADO
+
+DECRE_DIAS30:
+	LDI R23, 9
+	DEC R24
+
+	RJMP ESTADO
+
+SKIP_DIAS30:
+	RJMP ESTADO 
+
+//MES DE 31 DIAS
+M31: 
+	CPI R23, 0
+	BREQ DEC_DIAS31
+	CPI R23, 0b1111_1111
+	BREQ DECRE_DIAS31
+	CPI R23, 2
+	BREQ RESET_DIAS311
+
+	CPI R23, 10
+	BRNE SKIP_DIAS31
+	CLR R23
+	INC R24
+	
+	RJMP ESTADO
+
+RESET_DIAS311:
+	CPI R24, 3
+	BRNE SKIP_DIAS31
+	LDI R23, 1
+	CLR R24
+	
+	RJMP ESTADO
+
+DEC_DIAS31:
+	CPI R24, 0
+	BREQ RESET_DIAS31
+
+	RJMP ESTADO
+
+RESET_DIAS31:
+	LDI R23, 1
+	LDI R24, 3
+	
+	RJMP ESTADO
+
+DECRE_DIAS31:
+	LDI R23, 9
+	DEC R24
+
+	RJMP ESTADO
+
+SKIP_DIAS31:
+	RJMP ESTADO 
+
+//-----------------------------------------------------------------------------
+// ALARMA
+//-----------------------------------------------------------------------------	
+ALARMA:	
+
+	LDI R16, 0b0101_1111
+	OUT PORTC, R16
+	LDI ZH, HIGH(TABLA7SEG << 1)       
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R17						
+	LPM R16, Z							
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R18					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R28				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R29							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	RJMP ESTADO
+//-----------------------------------------------------------------------------
+// CAMBIO HORAS ALARMA
+//-----------------------------------------------------------------------------
+CAM_HORAS_ALARMA:
+
+	LDI R16, 0b0111_1111
+	OUT PORTC, R16
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R28				
+	LPM R16, Z				
+	OUT PORTD, R16
+	LDI R16, 0b0000_0100
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R29							
+	LPM R16, Z							
+	OUT PORTD, R16	
+	LDI R16, 0b0000_1000
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_HORAS_ALARMA
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_HORAS_ALARMA
+	
+	RJMP ESTADO
+
+INC_HORAS_ALARMA:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_HORASA:
+			DEC R16
+			BRNE LOOP_INC_HORASA
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_HORAS_ALARMA
+			INC R28
+			RJMP CAMBIO_HORASA
+
+DEC_HORAS_ALARMA:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_HORASA:
+			DEC R16
+			BRNE LOOP_DEC_HORASA
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_HORAS_ALARMA
+		DEC R28
+		RJMP CAMBIO_HORASA
+
+CAMBIO_HORASA:
+	CPI R28, 0b1111_1111
+	BREQ DECRE_HORASA
+	CPI R29, 2			// Compara las decenas de horas es igual a 2, ya que la hora solo llega a 4
+	BRNE HOR_ANT_20A			// Va a Horas antes de las 20 si es falso
+	
+	CPI R28, 4		
+	BRNE SKIP_HORASA
+	CLR R28
+	CLR R29
+	RJMP ESTADO
+
+HOR_ANT_20A:
+	CPI R28, 10	
+	BRNE SKIP_HORASA
+	CLR R28
+	INC R29
+	RJMP ESTADO
+
+DECRE_HORASA:
+	CPI R29, 0
+	BREQ RESET_HORASA
+	LDI R28, 9
+	DEC R29
+	RJMP ESTADO
+
+RESET_HORASA:
+	LDI R28, 3
+	LDI R29, 2
+	RJMP ESTADO
+
+SKIP_HORASA:
+	RJMP ESTADO
+
+//-----------------------------------------------------------------------------
+// CAMBIO MINUTOS ALARMA
+//-----------------------------------------------------------------------------	
+CAM_MINUTOS_ALARMA:
+
+	LDI R16, 0b0111_1111
+	OUT PORTC, R16
+	LDI ZH, HIGH(TABLA7SEG << 1)      
+	LDI ZL, LOW(TABLA7SEG << 1)		
+	ADD ZL, R17						
+	LPM R16, Z							
+	OUT PORTD, R16
+	LDI R16, 0b0000_0001
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+	
+	LDI ZH, HIGH(TABLA7SEG << 1)     
+	LDI ZL, LOW(TABLA7SEG << 1)			
+	ADD ZL, R18					
+	LPM R16, Z						
+	OUT PORTD, R16	
+	LDI R16, 0b0000_0010
+	OUT PORTB, R16						
+	LDI R16, 0b0000_0000
+	OUT PORTB, R16
+
+	IN R1, PINC
+	SBRS R1, PC0 // Compara si el bit con el puerto PC0 esta en 1,  va a INCREMENTO
+	RJMP INC_MINUTOS_ALARMA
+	SBRS R1, PC1 // Compara si el bit con el puerto PC1 esta en 1,  va a DECREMENTAR
+	RJMP DEC_MINUTOS_ALARMA
+	
+	RJMP ESTADO
+
+INC_MINUTOS_ALARMA:
+	LDI R16, 100 // Anti rebote
+		LOOP_INC_MINUTOSA:
+			DEC R16
+			BRNE LOOP_INC_MINUTOSA
+			SBIS PINC, PC0		// Lee nuevamente el pin, salta si el bit PC0 esta en 1
+			RJMP INC_MINUTOS_ALARMA
+			INC R17
+			RJMP CAMBIO_MINUTOSA
+
+DEC_MINUTOS_ALARMA:
+	LDI R16, 100 // Anti rebote
+		LOOP_DEC_MINUTOSA:
+			DEC R16
+			BRNE LOOP_DEC_MINUTOSA
+			SBIS PINC, PC1		// Lee nuevamente el pin, salta si el bit PC1 esta en 1
+			RJMP DEC_MINUTOS_ALARMA
+		DEC R17
+		RJMP CAMBIO_MINUTOSA
+
+CAMBIO_MINUTOSA:
+	CPI R17, 0b1111_1111
+	BREQ DECRE_MINUTOSA
+
+	CPI R17, 10
+	BRNE SKIP_MINUTOSA
+	CLR R17
+	INC R18
+
+	CPI R18, 6
+	BRNE SKIP_MINUTOSA
+	CLR R18
+
+	RJMP ESTADO
+
+DECRE_MINUTOSA:
+	CPI R18, 0
+	BREQ RESET_MINUTOSA
+	LDI R17, 9
+	DEC R18
+
+	RJMP ESTADO
+
+RESET_MINUTOSA:
+	LDI R17, 9
+	LDI R18, 5
+
+	RJMP ESTADO
+
+SKIP_MINUTOSA:
+	RJMP ESTADO	
+//-----------------------------------------------------------------------------
+// Subrutinas (Interrupciones)
+//-----------------------------------------------------------------------------
+//-----------------------------------------------------------------------------
+// CAMBIO DE ESTADO
+//-----------------------------------------------------------------------------
+CAMBIO:
+	IN R16, SREG
+	PUSH R16			// Guardamos en pila el registro SREG
+
+	IN R16, PINC
+	SBRS R16, PC3		// Si no esta presionado el boton, salta la siguiente instruccion
+	INC R27
+	SBRS R16, PC2
+	DEC R27
+	CPI R27, 0b1111_1111
+	BREQ RESET1
+	CPI R27, 9
+	BREQ RESET2
+
+	POP R16					// Obtener el valor de SREG
+	OUT SREG, R16			// Restaurar los antiguos valores de SREG
+	RETI					// Retorno de la ISR
+
+RESET1:
+	LDI R27, 8
+
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+RESET2:
+	CLR R27
+
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+//-----------------------------------------------------------------------------
+// RELOJ
+//-----------------------------------------------------------------------------
+RELOJ:
+	IN R16, SREG
+	PUSH R16			// Guardamos en pila el registro SREG
+
+	SBI TIFR0, TOV0
+	
+//RELOJ
+	INC R3
+	CP R3, R2			// Compara los segundos
+	BRNE RETORNO
+	CLR R3
+	INC R19
+	
+	CPI R19, 10			// Compara los minutos
+	BRNE RETORNO
+	CLR R19
+	
+	INC R20
+	CPI R20, 6			// Compara las decenas de minutos
+	BRNE RETORNO
+	CLR R20
+	
+	CPI R22, 2			// Compara las decenas de horas es igual a 2, ya que la hora solo llega a 4
+	BRNE HA20			// Va a Horas antes de las 20 si es falso
+	
+	INC R21
+	CPI R21, 4			// Compara las horas
+	BRNE RETORNO
+	CLR R21
+	CLR R22
+	RJMP DIAS
+
+RETORNO:
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+HA20:
+	INC R21
+	CPI R21, 10			// Compara las horas
+	BRNE RETORNO
+	CLR R21
+	INC R22
+
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+//-----------------------------------------------------------------------------
+// DIAS
+//-----------------------------------------------------------------------------
+DIAS:
+	CPI R26, 0			// Compara las decenas de meses es igual a 0
+	BRNE MMAI10			// Va a meses mayores o iguales a 10
+
+	CPI R25, 1		
+	BREQ MES31
+	CPI R25, 2		
+	BREQ MES29
+	CPI R25, 3		
+	BREQ MES31
+	CPI R25, 4		
+	BREQ MES30
+	CPI R25, 5		
+	BREQ MES31
+	CPI R25, 6		
+	BREQ MES30
+	CPI R25, 7		
+	BREQ MES31
+	CPI R25, 8		
+	BREQ MES31
+	CPI R25, 9		
+	BREQ MES30
+
+MMAI10:
+	CPI R25, 0
+	BREQ MES31
+	CPI R25, 1
+	BREQ MES30
+	CPI R25, 2
+	BREQ DICIEMBRE
+
+//MES DE 29 DIAS
+MES29:
+	INC R23
+	CPI R23, 10
+	BRNE RET29
+	CLR R23
+	INC R24
+	CPI R24, 3
+	BRNE RET29
+	LDI R23, 1
+	CLR R24
+	INC R25
+
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+RET29:
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+//MES DE 30 DIAS
+MES30:
+	CPI R24, 3
+	BRNE MES301
+	INC R23
+	CPI R23, 1
+	BRNE RET30
+	LDI R23, 1
+	CLR R24
+	INC R25
+
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+MES301:
+	INC R23
+	CPI R23, 10
+	BRNE RET30
+	CLR R23
+	INC R24
+
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+RET30:
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+//MES DE 31 DIAS
+MES31:
+	CPI R24, 3
+	BRNE MES311
+	INC R23
+	CPI R23, 2
+	BRNE RET31
+	LDI R23, 1
+	CLR R24
+	INC R25
+
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+MES311:
+	INC R23
+	CPI R23, 10
+	BRNE RET31
+	CLR R23
+	INC R24
+
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+DICIEMBRE:
+	CPI R24, 3
+	BRNE DICIEMBRE1
+	INC R23
+	CPI R23, 2
+	BRNE RET31
+	LDI R23, 1
+	CLR R24
+	LDI R25, 1
+	CLR R26
+
+	POP R16					
+	OUT SREG, R16			
+	RETI
+
+DICIEMBRE1:
+	INC R23
+	CPI R23, 10
+	BRNE RET31
+	CLR R23
+	INC R24
+
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+RET31:
+	POP R16					
+	OUT SREG, R16		
+	RETI
+
+//-----------------------------------------------------------------------------
+// Subrutina para inicializar TIMER0
+//-----------------------------------------------------------------------------
+Init_T0:
+	LDI R16, (1 << CS02) | (1 << CS00)		// Configura el prescales a 1024
+	OUT TCCR0B, R16
+
+	LDI R16, 11								// Carga el valor de desbordamiento
+	OUT TCNT0, R16							// Carga el valor inicial del contador
+	RET
